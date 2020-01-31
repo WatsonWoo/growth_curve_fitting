@@ -5,8 +5,8 @@ account: scott-h-saunders
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 1714370
-bundleId: 2757388
+bundleId: 2759896
 url: https://scott-h-saunders.shinyapps.io/gompertz_fitting_0v2/
-when: 1580182463.98032
+when: 1580261649.61273
 asMultiple: FALSE
 asStatic: FALSE
