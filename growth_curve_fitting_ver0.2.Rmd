@@ -1,5 +1,5 @@
 ---
-title: 'Version 0.2'
+title: 'Version 0.3'
 output: 
   flexdashboard::flex_dashboard:
     source_code: https://github.com/scott-saunders/growth_curve_fitting/blob/master/growth_curve_fitting_ver0.2.Rmd
@@ -86,11 +86,29 @@ df <- reactive({
 Parameter estimates of A, Lag, and Mu. Confidence intervals are included for gompertz models.
 
 ```{r}
+df_ests_output <- reactive({
+  
+  if(input$model == 'gomp' | input$model == 'biGomp'){
+  
+  df_ests_output <- df_ests() %>% select(-c(data, fit_result, fit_errors, models, est_result, est_errors))
+  
+  } else{
+    
+    if(input$model == 'spline'){
+      df_ests_output <- df_ests() %>% select(well, term, estimate)
+    }
+    
+  }
+  
+  return(df_ests_output)
+  
+  })
+
  downloadHandler(
          filename = 'growth_curve_parameter_estimates.csv',
          outputArgs = list(label = 'Parameter estimates'),
          content = function(file) {
-             write_csv(df_ests() %>% select(-c(data, fit_result, fit_errors, models, est_result, est_errors)), file)
+             write_csv(df_ests_output(), file)
          }
      )
 
@@ -125,28 +143,54 @@ downloadHandler(
 
 ```
 
+# Dataset Overview{ data-orientation=rows}
+
+## Plots
+
+### Overview Plot
+
+```{r}
+renderPlot({
+  
+  ggplot(df(), aes(time, absorbance, group = well)) + geom_path()
+  
+})
+```
+
+## Tables
+
+### Overview Table
+
+```{r}
+renderTable({
+  
+  df() %>% pivot_wider(id_cols = 'time', names_from = 'well', values_from = 'absorbance' )
+  
+})
+```
+
 
 # Select Data{ data-orientation=rows}
 
-## Plots {data-height='300%' .tabset}
+## Plots {data-height='300%'}
 
-### Plot All
+### Plot Selected Curves
 
 
 ```{r}
 
-output$overview_plot <- renderPlot({
+output$selection_plot <- renderPlot({
   
-  ggplot(df(), aes(time, absorbance, group = well)) + geom_path() + labs(title = 'Drag the box to select the data you would like to fit.')
+  ggplot(df() %>% filter(well %in% input$selected_wells), aes(time, absorbance, group = well)) + geom_path() + labs(title = 'Drag the box to select data')
   
 })
 
-plotOutput("overview_plot", brush = brushOpts(id = "overview_plot_brush"))
+plotOutput("selection_plot", brush = brushOpts(id = "selection_plot_brush"))
 
 # Reactive that returns the whole dataset if there is no brush
 
 selectedData <- reactive({
-  data <- brushedPoints(df(), input$overview_plot_brush) 
+  data <- brushedPoints(df(), input$selection_plot_brush) 
   if (nrow(data) == 0)
     data <- df()
   data %>% filter(well %in% input$selected_wells)
@@ -154,7 +198,7 @@ selectedData <- reactive({
 
 ```
 
-### Plot Selected
+### Plot Selected Data
 
 ```{r}
 
@@ -162,7 +206,7 @@ selectedData <- reactive({
   
   renderPlot({
   
-  ggplot(selectedData(), aes(time, absorbance, group = well)) + geom_path()
+  ggplot(selectedData(), aes(time, absorbance, color = well)) + geom_path() + scale_color_viridis(discrete = T) + theme(legend.position = 'bottom')
   
 })
 
@@ -172,41 +216,31 @@ selectedData <- reactive({
 
 ```
 
+
 ## Select Wells{data-height='100%'}
 
-### Select Wells / Experiments
+### Select Subset of Growth Curves
 
 ```{r}
 renderUI({
   list(
-    sliderInput(inputId = 'well_range', label = 'Select a range of wells', min = 1, max = max(df()$well_index), value = c(1,max(df()$well_index)))
+    sliderInput(inputId = 'well_range', label = 'Select a range of curves', min = 1, max = max(df()$well_index), value = c(1,max(df()$well_index)))
   )
 })
 
 ```
 
-### Check boxes
+### Select Individual Curves
 
 ```{r}
-renderUI({    checkboxGroupInput(inputId = 'selected_wells', label = 'Choose your curves',
-                     choices = levels(factor((df() %>% filter(well_index >= input$well_range[1]))$well)),
-                     selected = levels(factor((df() %>% filter(well_index >= input$well_range[1]))$well)),
+renderUI({    checkboxGroupInput(inputId = 'selected_wells', label = 'Choose specific curves',
+                     choices = levels(factor((df() %>% filter(well_index >= input$well_range[1] & well_index <= input$well_range[2]))$well)),
+                     selected = levels(factor((df() %>% filter(well_index >= input$well_range[1] & well_index <= input$well_range[2]))$well)),
                      width = '100%', inline = T)})
 
 ```
 
 ## Tables {data-height='100%' .tabset}
-
-### Table All
-
-
-```{r}
-renderTable({
-  
-  df() %>% pivot_wider(id_cols = 'time', names_from = 'well', values_from = 'absorbance' )
-  
-})
-```
 
 ### Table Selected
 
@@ -220,29 +254,83 @@ renderTable({
 
 # Set Model Parameters{data-orientation=rows}
 
-## Background 
+## Background{.tabset}
 
-### Background on Gompertz model parameters
+### Models
+
+#### Select a Model:
 
 ```{r}
-selectInput("model", "Select a model:", c("Single Gompertz" = "gomp", "Bi-Gompertz" = "biGomp","Spline" = "spline"), selected = 'gomp')
+selectInput("model", "See tabs for more details.", c("Single Gompertz" = "gomp", "Bi-Gompertz" = "biGomp","Spline" = "spline"), selected = 'gomp')
 ```
 
-[This paper](https://aem.asm.org/content/56/6/1875), it suggests that the modified Gompertz equation is an ideal way to parameterize a growth curve. They desribe the three parameters as follows: 
+* **Single Gompertz:** assumes a single growth phase
+* **Bi-Gompertz:** assumes two simultaneous growth phases
+* **Spline:** model-free approach, assumes nothing
 
->The three phases of the growth curve can be described by three parameters: the maximum specific growth rate, $\mu_m$ is defined as the tangent in the inflection point; the lag time, $Lag$, is defined as the x-axis intercept of this tangent; and the asymptote $A$ is the maximal value reached.
 
-The equation used here is the following:
+#### Parameters:
 
-$$ y = A*exp \left(-exp \left(\frac{\mu_m}{A}(Lag - t) + 1 \right)\right) + C$$
+* **A:** the asymptote of the maximum value.
+* **Mu / $\mu$:** (Maximum specific growth rate) the slope of the tangent at the inflection point.
+* **Lag / $\lambda$:** (Lag time) the x intercept of the Mu tangent.
+* **C:** minimal value offset from zero.
 
-Where $C$ is a starting absorbance value. 
 
-The models are actually fit with a nonlinear least squares method, specifically the [nls function](https://www.rdocumentation.org/packages/stats/versions/3.6.2/topics/nls) from R. This method is extremely fast, but it requires pretty good guesses for parameter values. Therefore you can provide custom parameter values below. If many of your experiments cannot be fit, try playing with these starting parameters.
+
+```{r out.width = '50%', fig.align='center'}
+
+knitr::include_graphics("growth_curve_diagram.png")
+
+```
+
+### Single Gompertz 
+
+#### Single Gompertz
+
+[Zwietering 1990](https://aem.asm.org/content/56/6/1875), and [Tjorve, 2017](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0178691) both suggest that the Gompertz model is the ideal parameterization to use for fitting biological growth curves. Traditionally it has three parameters $A$, $\mu_m$, and $\lambda$, as described in the models tab. I have added the parameter $C$ so that data do not need to start at zero. 
+
+The single gompertz equation used here is the following:
+
+$$ y = A*exp \left(-exp \left(\frac{\mu_m}{A}(\lambda - t) + 1 \right)\right) + C$$
+
+The models are actually fit with a nonlinear least squares method, specifically the [nls function](https://www.rdocumentation.org/packages/stats/versions/3.6.2/topics/nls) from R. This method is extremely fast, but it requires pretty good guesses for parameter values. Therefore you can provide custom parameter values below, and more specifically you can provide parameter bounds, which will help the algorithm search a smaller parameter space. If many of your experiments cannot be fit, try playing with the parameter starts and bounds. The model will refit every time you change a parameter input. Fitting happens nearly instantly, but plotting many growth curves may cause slight delays.
+
+If nls() cannot fit a model to the data it returns an error which is recorded in the error table ('fit_error_occured' column) on the Model Fits page. These data that cannot be fit are displayed under the 'Error Plots' tab on the Model Fits page. If there is a specific type of curve the function is having a problem with, it should be obvious from this tab.
+
+For most fits, the nls() model will generate a 95% confidence interval for the parameter estimates, however, in certain cases (beyond my understanding) it can estimate a parameter but not the associated confidence interval. This is recorded on the Parameter estimates page, in the table estimates panel, under the 'est_error_occured' column. 
+
+### Bi-Gompertz 
+
+#### Bi-Gompertz 
+
+The Bi-Gompertz model is basically two single gompertz models added together. This is my own parameterization and it assumes two simultaneous growth phases, each controlled by their own set of parameters (e.g. $A_1$ and $A_2$). For a classic microbial diauxic shift, the second growth phase should have a longer lag / $\lambda$ that shifts the model to that point. However, this is my own creation and their may be better parameterizations / models for doing this type of analysis!
+
+The bi gompertz equation is the following:
+
+$$ y = \left( A_1*exp \left(-exp \left(\frac{\mu_1}{A_1}(\lambda_1 - t) + 1 \right)\right)\right) + \left( A_2*exp \left(-exp \left(\frac{\mu_2}{A_2}(\lambda_2 - t) + 1 \right)\right)\right) + C$$
+
+Like the single gompertz model, the bi-gompertz is fit using the [nls function](https://www.rdocumentation.org/packages/stats/versions/3.6.2/topics/nls). It is still quite fast for this model, but it may require slightly longer than the single gompertz. More importantly, this model may be more difficult to fit, requiring quite a bit of fine tuning of the start parameters and parameter bounds. It is worth trying to take hints for these values from the parameter estimates of successfully fit (single or bi-gompertz) curves. You can even try selecting subsets (e.g. second growth phase only) of the data for single gompertz fitting and use those parameters to initialize the bi-gompertz.
+
+When you examine the model fits from the bi-gompertz their should be a blue curve, which is the final fit. The two red curves separate representations of the two growth phases fit by this model. Accordingly, in the parameter estimates, you will see values for all 7 parameters.
+
+The parameter estimate confidence intervals follow the same scheme as the single gompertz model. 
+
+### Spline
+
+#### Spline
+
+The spline model does not assume anything about microbial growth or any underlying process. Intead it simply fits tangent lines to a curve. To fit the spline model I actually use gcFitSpline() from a very interesting R package called [grofit](https://www.jstatsoft.org/article/view/v033i07). It actually takes a much more sophisticated approach than I have, so I encourage you to check it out if you use R and want to fit growth curves very rigorously!
+
+Grofit fits splines to the growth curve and it extracts values for A, Lag, and Mu by assumming some very basic things (this is my crude understanding). For Mu, I believe it returns the spline with the greatest slope. Then it finds the X-intercept of that line to get Lag. 
+
+I don't know more than that, and there is no model underlying these parameter estimates, so check that the model fits look reasonable. However, I think that this is similar to taking a ruler and finding the tangent manually, like an old-school microbiologist! You will see that when the Model Fits are plotted you can see the tangent line that Mu and Lag are calculated from and the asymptote that gives A as red lines.
+
+As of now, the spline model returns parameter estimates, but no confidence intervals. In order to get confidence intervals I would need to do something like fit bootstrapped data, which I tried, but takes too long to run. For now, I thought it was worth it to have the model fit instantly, but without confidence intervals!
 
 ## Gompertz model parameters {.tabset}
 
-### Start parameters {style="height:50pc;"}
+### Start parameters 
 
 #### You have selected this model:
 
@@ -251,7 +339,7 @@ renderText({
   case_when(
     input$model == "gomp" ~ "Single Gompertz",
     input$model == "biGomp" ~ "Bi-Gompertz",
-    input$model == "spline" ~ "Spline" 
+    input$model == "spline" ~ "Spline"
   )
 })
 ```
@@ -282,17 +370,24 @@ params_biGomp <- list(
 
 params_spline <- list(renderText("No params needed"),NULL, NULL, NULL, NULL, NULL, NULL )
 
-renderUI({ 
-  case_when(
-    input$model == 'gomp' ~ params_gomp,
-    input$model == 'biGomp' ~ params_biGomp,
-    input$model == 'spline' ~ params_spline
-  )
-})
+
+conditionalPanel(condition = "input.model == 'gomp'", 
+                 params_gomp
+                 )
+
+conditionalPanel(condition = "input.model == 'biGomp'", 
+                 params_biGomp
+                 )
+
+conditionalPanel(condition = "input.model == 'spline'", 
+                 params_spline
+                 )
+
+
 ```
 
 
-### Parameter Bounds {style="height:100pc;"}
+### Parameter Bounds 
 
 #### You have selected this model:
 
@@ -345,7 +440,7 @@ bounds_biGomp <- list(
 )
 
 bounds_spline <- list( 
-  renderText("No params needed"),
+  renderText("No bounds needed"),
   NULL,
   NULL,
   NULL,
@@ -361,13 +456,18 @@ bounds_spline <- list(
   NULL
 )
 
-renderUI({ 
-  case_when(
-    input$model == 'gomp' ~ bounds_gomp,
-    input$model == 'biGomp' ~ bounds_biGomp,
-    input$model == 'spline' ~ bounds_spline
-  )
-})
+conditionalPanel(condition = "input.model == 'gomp'", 
+                 bounds_gomp
+                 )
+
+conditionalPanel(condition = "input.model == 'biGomp'", 
+                 bounds_biGomp
+                 )
+
+conditionalPanel(condition = "input.model == 'spline'", 
+                 bounds_spline
+                 )
+
 ```
 
 
