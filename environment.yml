@@ -7,4 +7,7 @@ dependencies:
   - r-kableextra
   - r-modelr
   - r-broom
+  - r-shiny
+  - r-rmarkdown
+  - r-flexdashboard
   
