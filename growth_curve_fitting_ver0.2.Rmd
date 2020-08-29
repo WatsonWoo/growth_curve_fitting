@@ -9,15 +9,13 @@ runtime: shiny
 
 ```{r setup}
 library(tidyverse)
-library(dplyr)
-library(cowplot)
-library(viridis)
 library(knitr)
 library(kableExtra)
 library(modelr)
 library(broom)
-library(ggforce)
-library(grofit)
+#library(grofit)
+
+
 
 ```
 
@@ -206,7 +204,7 @@ selectedData <- reactive({
   
   renderPlot({
   
-  ggplot(selectedData(), aes(time, absorbance, color = well)) + geom_path() + scale_color_viridis(discrete = T) + theme(legend.position = 'bottom')
+  ggplot(selectedData(), aes(time, absorbance, color = well)) + geom_path() + scale_color_viridis_d() + theme(legend.position = 'bottom')
   
 })
 

@@ -1,0 +1,10 @@
+channels:
+  - conda-forge
+dependencies:
+  - r-base=3.5
+  - r-tidyverse
+  - r-knitr
+  - r-kableextra
+  - r-modelr
+  - r-broom
+  
