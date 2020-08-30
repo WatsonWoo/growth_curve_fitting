@@ -13,7 +13,7 @@ library(knitr)
 library(kableExtra)
 library(modelr)
 library(broom)
-#library(grofit)
+library(grofit)
 
 
 
