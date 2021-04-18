@@ -1,0 +1,156 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r setup}
+library(tidyverse)
+#library(dplyr)
+#library(cowplot)
+#library(viridis)
+#library(knitr)
+library(modelr)
+library(broom)
+#ibrary(ggforce)
+library(grofit)
+
+```
+
+```{r}
+
+gen_gompertz <- function( A, Mu, Lag, C = 0, sd = 0.01, t = seq(0,48,0.5)){
+  
+  vals = A*exp(-exp(((Mu*exp(1))/A)*(Lag - t) + 1)) + C
+  
+  tibble(t = t, y = rnorm(vals, mean = vals, sd = sd))
+}
+
+
+fit_gompertz_mod <- function(df, A = 0.5, Mu = 0.2, Lag = 4, C = 0.05, 
+                             A_low = 0, A_up = 100, 
+                             Lag_low = 0, Lag_up = 100, 
+                             Mu_low = 0, Mu_up = 10, 
+                             C_low = -10, C_up = 10){
+            
+            mod <- nls(formula=y~A*exp(-exp(((Mu*exp(1))/A)*(Lag - t) + 1))+C, 
+                       start = c(A = A, Mu = Mu, Lag = Lag, C = C), 
+                       algorithm = 'port',
+                       lower = c(A = A_low, Mu = Mu_low, Lag = Lag_low, C = C_low),
+                       upper = c(A = A_up, Mu = Mu_up, Lag = Lag_up, C = C_up),
+                       data = df)
+            
+            mod
+        }
+        
+```
+
+```{r}
+df = tibble(time = seq(1,24,0.5))
+
+
+df = gen_gompertz(A = 0.5, Mu = 0.2, Lag = 4)
+
+ggplot(df, aes(x = t, y=y)) + geom_point()
+```
+
+
+```{r}
+mod <- fit_gompertz_mod(df)
+
+df_mod <- df %>% add_predictions(mod)
+
+ggplot(df_mod, aes(x = time, y = absorbance)) + geom_point() + geom_path(aes(y = pred))
+```
+
+```{r}
+tidy(mod, conf.int = T)
+```
+
+```{r}
+
+df_gen <- expand_grid( A = seq(1, 5, 1), Mu = seq(0.1, 1, 0.1 ), Lag = seq(0,10,2)) #%>% 
+  #group_by(A,Mu,Lag) %>% 
+  #nest(t=time)
+
+#df_gen$data[[1]]
+
+df_gen_data <- df_gen %>% mutate(gomp = pmap(list( A, Mu, Lag),gen_gompertz))%>% mutate(params = paste0('A_',A,'_Mu_',Mu,'_Lag_',Lag))
+
+df_gen_data_export <- df_gen_data %>% unnest(gomp) %>% pivot_wider(names_from = params, values_from = y, id_cols = t) %>% rename(time = t)
+
+write_csv(df_gen_data_export, 'gomp_params_sim_dataset.csv')
+
+df_gen_data_unnest <- df_gen_data %>% unnest(gomp) %>% mutate(params = paste(A,Mu,Lag))
+
+
+
+ggplot(df_gen_data_unnest , aes(t, y, group = params)) + geom_path()
+
+ggplot(df_gen_data_unnest, aes(t, y, group = params, color = A)) + geom_path() + facet_wrap(c('Mu','Lag'), scales = 'free') + scale_color_viridis_c()
+
+ggplot(df_gen_data_unnest, aes(t, y, group = params, color = Mu)) + geom_path() + facet_wrap(c('A', 'Lag'), scales = 'free')+ scale_color_viridis_c()
+
+ggplot(df_gen_data_unnest, aes(t, y, group = params, color = Lag)) + geom_path() + facet_wrap(c('A','Mu'))+ scale_color_viridis_c()
+```
+
+```{r}
+
+df_gen_ests <- df_gen_data %>% 
+  mutate(mod = map(gomp, safely(fit_gompertz_mod))) %>% unnest(mod)
+
+
+
+%>% 
+  mutate(ests = map(mod, tidy, conf.int = T)) %>% 
+  unnest(ests)
+
+df_gen_ests_plot <- df_gen_ests %>% 
+  filter(term!='C') %>% 
+  mutate(true_param = ifelse(term=='A',A,ifelse(term=='Mu',Mu,Lag)))
+
+ggplot(df_gen_ests_plot %>% filter(term=='Lag'), aes(x = true_param, y = estimate)) +  geom_pointrange(aes(ymin = conf.low, ymax = conf.high), position = position_jitter(width = 0.1)) + facet_wrap(~term, scales = 'free')
+
+ggplot(df_gen_ests_plot, aes(x = true_param, y = estimate)) + geom_smooth(method = 'lm') + geom_point(shape = 21) + facet_wrap(~term, scales = 'free')
+
+```
+
+```{r}
+df_simple <- read_csv("plate_reader_simple_data.csv") %>% 
+  pivot_longer(-time) %>% 
+  group_by(name) %>% 
+  mutate(min_val = min(value)) %>% 
+  mutate(log_val = log(value/min_val))
+
+df_simple_log <- df_simple %>% 
+  select(-value, -min_val) %>% 
+  pivot_wider(names_from = name, values_from = log_val)
+
+write_csv(df_simple_log, 'plate_reader_simple_log.csv')
+```
+
+```{r}
+double <- function(x){
+  val = 2^x
+  abs(rnorm(val, mean = val, sd = 10))
+}
+
+
+
+df_perfect_double <- tibble(t = seq(0, 5, 0.05), double = double(seq(0,10,0.1))) %>% mutate(y = double / 1000)
+
+df_log_perf <- df_perfect_double %>% mutate(min_val = min(y)) %>% mutate(norm_val = log(y/min_val)) %>% select(t,y=norm_val)
+
+ggplot(df_perfect_double, aes(t,y)) + geom_point()
+
+mod_perf <- fit_gompertz_mod(df_perfect_double)
+
+ggplot(df_log_perf, aes(t,y)) + geom_point()
+
+mod_perf_2 <- fit_gompertz_mod(df_log_perf)
+
+summary(mod_perf_2)
+
+ggplot(df_perfect_double %>% add_predictions(mod_perf), aes(t,y)) + geom_point() + geom_path(aes(y = pred))# + scale_y_log10()
+
+ggplot(df_log_perf %>% add_predictions(mod_perf_2), aes(t,y)) + geom_point() + geom_path(aes(y = pred))
+```
